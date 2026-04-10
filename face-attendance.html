@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FaceSync — Attendance System</title>
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #050a0e;
+    --panel: #0a1520;
+    --panel2: #0d1c2e;
+    --border: #1a3550;
+    --border2: #0f2a44;
+    --green: #00e5a0;
+    --green2: #00b87d;
+    --amber: #f5a623;
+    --red: #ff4757;
+    --blue: #00aaff;
+    --text: #c8dfe8;
+    --text2: #6a9ab8;
+    --text3: #3a6a8a;
+    --glow: 0 0 20px rgba(0,229,160,0.3);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background-image:
+      radial-gradient(ellipse at 20% 0%, rgba(0,229,160,0.04) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 100%, rgba(0,170,255,0.03) 0%, transparent 50%);
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.12) 2px, rgba(0,0,0,0.12) 4px);
+    pointer-events: none; z-index: 9999;
+  }
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(to right, var(--panel), transparent);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo { font-family:'Orbitron',monospace; font-size:1.3rem; font-weight:900; color:var(--green); letter-spacing:4px; text-shadow:var(--glow); }
+  .logo span { color:var(--text2); font-weight:400; font-size:0.62rem; display:block; letter-spacing:8px; margin-top:-2px; }
+  .header-right { display:flex; align-items:center; gap:20px; }
+  .live-badge { display:flex; align-items:center; gap:7px; font-family:'Share Tech Mono',monospace; font-size:0.7rem; color:var(--green); border:1px solid var(--green2); padding:4px 10px; border-radius:2px; background:rgba(0,229,160,0.05); }
+  .live-dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 6px var(--green); animation:blink 1.2s ease-in-out infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  .clock { font-family:'Share Tech Mono',monospace; font-size:0.85rem; color:var(--text2); }
+  .main { display:grid; grid-template-columns:460px 1fr; height:calc(100vh - 57px); }
+  .left-panel { border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+  .cam-header { display:flex; align-items:center; justify-content:space-between; padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--border2); font-family:'Share Tech Mono',monospace; font-size:0.7rem; color:var(--text3); letter-spacing:2px; }
+  .cam-dot { width:6px; height:6px; border-radius:50%; background:var(--text3); }
+  .cam-dot.active { background:var(--green); box-shadow:0 0 8px var(--green); animation:blink 2s ease infinite; }
+  .cam-dot.loading { background:var(--amber); animation:blink 0.5s linear infinite; }
+  .video-container { position:relative; width:100%; aspect-ratio:4/3; background:#020810; overflow:hidden; flex-shrink:0; }
+  #video { width:100%; height:100%; object-fit:cover; display:block; transform:scaleX(-1); }
+  #overlay { position:absolute; inset:0; transform:scaleX(-1); }
+  .corners { position:absolute; inset:0; pointer-events:none; z-index:10; }
+  .corner { position:absolute; width:20px; height:20px; border-color:var(--green); border-style:solid; opacity:0.7; }
+  .corner.tl { top:12px; left:12px; border-width:2px 0 0 2px; }
+  .corner.tr { top:12px; right:12px; border-width:2px 2px 0 0; }
+  .corner.bl { bottom:12px; left:12px; border-width:0 0 2px 2px; }
+  .corner.br { bottom:12px; right:12px; border-width:0 2px 2px 0; }
+  .scan-line { position:absolute; left:0; right:0; height:2px; background:linear-gradient(90deg,transparent,var(--green),transparent); opacity:0.5; animation:scanMove 3s linear infinite; z-index:11; }
+  @keyframes scanMove { 0%{top:0;opacity:0.6} 50%{opacity:0.3} 100%{top:100%;opacity:0.6} }
+  .conf-badge { position:absolute; top:8px; right:8px; font-family:'Share Tech Mono',monospace; font-size:0.62rem; padding:3px 8px; background:rgba(0,0,0,0.7); border:1px solid var(--border); color:var(--text2); letter-spacing:1px; z-index:12; }
+  #loadingOverlay { position:absolute; inset:0; background:rgba(5,10,14,0.95); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:50; gap:16px; }
+  .spinner { width:40px; height:40px; border:2px solid var(--border); border-top-color:var(--green); border-radius:50%; animation:spin 1s linear infinite; }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  .load-text { font-family:'Share Tech Mono',monospace; font-size:0.72rem; color:var(--text2); letter-spacing:3px; }
+  .load-bar { width:200px; height:2px; background:var(--border); border-radius:1px; overflow:hidden; }
+  .load-fill { height:100%; background:var(--green); width:0%; transition:width 0.4s ease; box-shadow:0 0 8px var(--green); }
+  .recog-bar { padding:10px 16px; background:var(--panel2); border-top:1px solid var(--border2); min-height:56px; display:flex; flex-direction:column; justify-content:center; }
+  .recog-name { font-family:'Orbitron',monospace; font-size:1rem; font-weight:700; color:var(--green); text-shadow:var(--glow); letter-spacing:2px; }
+  .recog-detail { font-family:'Share Tech Mono',monospace; font-size:0.65rem; color:var(--text2); margin-top:2px; letter-spacing:1px; }
+  .recog-idle { font-family:'Share Tech Mono',monospace; font-size:0.7rem; color:var(--text3); letter-spacing:2px; }
+  .reg-section { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+  .section-label { font-family:'Share Tech Mono',monospace; font-size:0.62rem; color:var(--text3); letter-spacing:4px; text-transform:uppercase; display:flex; align-items:center; gap:8px; }
+  .section-label::after { content:''; flex:1; height:1px; background:var(--border2); }
+  .reg-form { display:flex; gap:8px; }
+  .reg-input { flex:1; background:rgba(0,229,160,0.03); border:1px solid var(--border); color:var(--text); font-family:'Rajdhani',sans-serif; font-size:0.95rem; font-weight:500; padding:9px 14px; outline:none; transition:border-color 0.2s; letter-spacing:1px; }
+  .reg-input:focus { border-color:var(--green2); box-shadow:inset 0 0 20px rgba(0,229,160,0.03); }
+  .reg-input::placeholder { color:var(--text3); }
+  .btn { font-family:'Rajdhani',sans-serif; font-weight:600; font-size:0.85rem; letter-spacing:2px; text-transform:uppercase; border:none; cursor:pointer; padding:9px 16px; transition:all 0.2s; }
+  .btn-green { background:var(--green2); color:var(--bg); }
+  .btn-green:hover { box-shadow:0 0 16px rgba(0,184,125,0.4); }
+  .btn-green:disabled { background:var(--border); color:var(--text3); cursor:not-allowed; box-shadow:none; }
+  .btn-outline { background:transparent; border:1px solid var(--border); color:var(--text2); }
+  .btn-outline:hover { border-color:var(--green2); color:var(--green); }
+  .cap-prog { display:none; }
+  .cap-prog.show { display:block; }
+  .cap-label { font-family:'Share Tech Mono',monospace; font-size:0.62rem; color:var(--green); letter-spacing:2px; margin-bottom:4px; }
+  .cap-bar { height:3px; background:var(--border); border-radius:2px; overflow:hidden; }
+  .cap-fill { height:100%; background:var(--green); box-shadow:0 0 8px var(--green); transition:width 0.3s ease; }
+  .stats-row { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .stat-card { background:var(--panel2); border:1px solid var(--border2); padding:10px 12px; }
+  .stat-val { font-family:'Orbitron',monospace; font-size:1.4rem; font-weight:700; color:var(--green); text-shadow:var(--glow); line-height:1; }
+  .stat-lbl { font-family:'Share Tech Mono',monospace; font-size:0.58rem; color:var(--text3); letter-spacing:2px; margin-top:3px; }
+  .faces-list { display:flex; flex-direction:column; gap:6px; max-height:180px; overflow-y:auto; }
+  .face-item { display:flex; align-items:center; gap:10px; padding:8px 12px; background:rgba(0,229,160,0.03); border:1px solid var(--border2); }
+  .face-avatar { width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,var(--border),var(--border2)); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-family:'Orbitron',monospace; font-size:0.75rem; font-weight:700; color:var(--green); flex-shrink:0; }
+  .face-info { flex:1; min-width:0; }
+  .face-name { font-weight:600; font-size:0.9rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .face-samp { font-family:'Share Tech Mono',monospace; font-size:0.6rem; color:var(--text3); letter-spacing:1px; }
+  .face-del { background:none; border:none; cursor:pointer; color:var(--text3); font-size:0.9rem; padding:4px 6px; transition:color 0.2s; }
+  .face-del:hover { color:var(--red); }
+  .empty-state { font-family:'Share Tech Mono',monospace; font-size:0.62rem; color:var(--text3); text-align:center; padding:14px; letter-spacing:2px; border:1px dashed var(--border2); }
+  /* RIGHT */
+  .right-panel { display:flex; flex-direction:column; overflow:hidden; }
+  .tbl-header { display:flex; align-items:center; justify-content:space-between; padding:12px 20px; background:var(--panel); border-bottom:1px solid var(--border); flex-shrink:0; }
+  .tbl-title { font-family:'Orbitron',monospace; font-size:0.75rem; font-weight:700; color:var(--text2); letter-spacing:4px; }
+  .tbl-actions { display:flex; gap:8px; align-items:center; }
+  .search-box { background:rgba(0,229,160,0.03); border:1px solid var(--border2); color:var(--text); font-family:'Share Tech Mono',monospace; font-size:0.68rem; padding:6px 12px; outline:none; width:170px; letter-spacing:1px; transition:border-color 0.2s; }
+  .search-box:focus { border-color:var(--green2); }
+  .search-box::placeholder { color:var(--text3); }
+  .tbl-wrap { flex:1; overflow-y:auto; scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+  table { width:100%; border-collapse:collapse; font-size:0.88rem; }
+  thead { position:sticky; top:0; z-index:10; }
+  thead th { background:var(--panel2); color:var(--text3); font-family:'Share Tech Mono',monospace; font-size:0.6rem; letter-spacing:3px; text-transform:uppercase; padding:10px 14px; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; font-weight:400; }
+  tbody tr { border-bottom:1px solid var(--border2); transition:background 0.15s; }
+  tbody tr:hover { background:rgba(0,229,160,0.025); }
+  tbody td { padding:9px 14px; color:var(--text); vertical-align:middle; }
+  .td-name { font-weight:600; letter-spacing:0.5px; }
+  .td-mono { font-family:'Share Tech Mono',monospace; font-size:0.76rem; color:var(--text2); letter-spacing:1px; }
+  .badge { display:inline-flex; align-items:center; gap:4px; font-family:'Share Tech Mono',monospace; font-size:0.58rem; letter-spacing:2px; padding:3px 8px; border-radius:1px; }
+  .badge-in { background:rgba(0,229,160,0.1); color:var(--green); border:1px solid rgba(0,229,160,0.2); }
+  .badge-out { background:rgba(0,170,255,0.1); color:var(--blue); border:1px solid rgba(0,170,255,0.2); }
+  .b-dot { width:5px; height:5px; border-radius:50%; background:currentColor; }
+  .act-btns { display:flex; gap:5px; }
+  .icon-btn { background:none; border:1px solid var(--border2); color:var(--text3); cursor:pointer; padding:4px 9px; font-size:0.68rem; font-family:'Share Tech Mono',monospace; letter-spacing:1px; transition:all 0.2s; }
+  .icon-btn.edit:hover { border-color:var(--amber); color:var(--amber); }
+  .icon-btn.del:hover { border-color:var(--red); color:var(--red); }
+  .empty-tbl { text-align:center; padding:60px 20px; color:var(--text3); }
+  .empty-tbl-icon { font-size:2.5rem; opacity:0.3; display:block; margin-bottom:12px; }
+  .empty-tbl p { font-family:'Share Tech Mono',monospace; font-size:0.68rem; letter-spacing:3px; }
+  #toast { position:fixed; bottom:24px; right:24px; padding:12px 20px; font-family:'Share Tech Mono',monospace; font-size:0.7rem; letter-spacing:2px; border:1px solid var(--green2); background:rgba(5,10,14,0.96); color:var(--green); box-shadow:0 0 30px rgba(0,229,160,0.2); z-index:9998; opacity:0; transform:translateY(10px); transition:all 0.3s; pointer-events:none; max-width:340px; }
+  #toast.show { opacity:1; transform:translateY(0); }
+  #toast.error { border-color:var(--red); color:var(--red); box-shadow:0 0 30px rgba(255,71,87,0.2); }
+  #toast.amber { border-color:var(--amber); color:var(--amber); box-shadow:0 0 30px rgba(245,166,35,0.2); }
+  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,0.82); z-index:200; display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; transition:opacity 0.2s; }
+  .modal-bg.open { opacity:1; pointer-events:all; }
+  .modal { background:var(--panel); border:1px solid var(--border); padding:24px; min-width:320px; box-shadow:0 0 60px rgba(0,0,0,0.8); }
+  .modal h3 { font-family:'Orbitron',monospace; font-size:0.78rem; font-weight:700; color:var(--text); letter-spacing:3px; margin-bottom:16px; }
+  .mrow { display:flex; flex-direction:column; gap:5px; margin-bottom:12px; }
+  .mlbl { font-family:'Share Tech Mono',monospace; font-size:0.62rem; color:var(--text3); letter-spacing:2px; }
+  .minput { background:rgba(0,229,160,0.03); border:1px solid var(--border); color:var(--text); font-family:'Rajdhani',sans-serif; font-size:0.95rem; padding:8px 12px; outline:none; width:100%; transition:border-color 0.2s; }
+  .minput:focus { border-color:var(--green2); }
+  .mact { display:flex; gap:8px; justify-content:flex-end; margin-top:18px; }
+  ::-webkit-scrollbar { width:4px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  @media(max-width:900px) {
+    .main { grid-template-columns:1fr; grid-template-rows:auto 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">FACESYNC<span>BIOMETRIC ATTENDANCE TERMINAL</span></div>
+  <div class="header-right">
+    <div class="live-badge"><div class="live-dot"></div><span id="sysStatus">INITIALIZING</span></div>
+    <div class="clock" id="clock">--:--:--</div>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- LEFT -->
+  <div class="left-panel">
+    <div class="cam-header">
+      <span>CAMERA — REAL-TIME RECOGNITION</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <div class="cam-dot loading" id="camDot"></div>
+        <span id="camLbl" style="font-size:0.65rem">CONNECTING</span>
+      </div>
+    </div>
+
+    <div class="video-container">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="overlay"></canvas>
+      <div class="corners">
+        <div class="corner tl"></div><div class="corner tr"></div>
+        <div class="corner bl"></div><div class="corner br"></div>
+      </div>
+      <div class="scan-line"></div>
+      <div class="conf-badge" id="confBadge">SCANNING...</div>
+      <div id="loadingOverlay">
+        <div class="spinner"></div>
+        <div class="load-text" id="loadText">LOADING AI MODELS</div>
+        <div class="load-bar"><div class="load-fill" id="loadFill"></div></div>
+      </div>
+    </div>
+
+    <div class="recog-bar">
+      <div class="recog-idle" id="recogIdle">⬡ AWAITING FACE DETECTION...</div>
+      <div id="recogResult" style="display:none">
+        <div class="recog-name" id="recogName"></div>
+        <div class="recog-detail" id="recogDetail"></div>
+      </div>
+    </div>
+
+    <div class="reg-section">
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-val" id="sEnrolled">0</div><div class="stat-lbl">ENROLLED</div></div>
+        <div class="stat-card"><div class="stat-val" id="sIn">0</div><div class="stat-lbl">CHECKED IN</div></div>
+        <div class="stat-card"><div class="stat-val" id="sTotal">0</div><div class="stat-lbl">TODAY TOTAL</div></div>
+      </div>
+
+      <div class="section-label">ENROLL NEW FACE</div>
+      <div class="reg-form">
+        <input type="text" class="reg-input" id="nameInput" placeholder="ENTER FULL NAME" autocomplete="off" />
+        <button class="btn btn-green" id="regBtn" disabled>ENROLL</button>
+      </div>
+      <div class="cap-prog" id="capProg">
+        <div class="cap-label" id="capLbl">CAPTURING 0/5...</div>
+        <div class="cap-bar"><div class="cap-fill" id="capFill"></div></div>
+      </div>
+
+      <div class="section-label">ENROLLED IDENTITIES</div>
+      <div class="faces-list" id="facesList"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="right-panel">
+    <div class="tbl-header">
+      <div class="tbl-title">ATTENDANCE LOG</div>
+      <div class="tbl-actions">
+        <input type="text" class="search-box" id="searchBox" placeholder="SEARCH NAME / DATE...">
+        <button class="btn btn-outline" id="clearBtn" style="font-size:0.7rem;padding:6px 10px">CLEAR TODAY</button>
+        <button class="btn btn-green" id="exportBtn" style="font-size:0.7rem;padding:6px 12px">⬇ EXPORT CSV</button>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>NAME</th><th>DATE</th>
+            <th>CHECK-IN</th><th>CHECK-OUT</th>
+            <th>DURATION</th><th>STATUS</th><th>ACTIONS</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- Edit Modal -->
+<div class="modal-bg" id="editModal">
+  <div class="modal">
+    <h3>EDIT ATTENDANCE RECORD</h3>
+    <div class="mrow"><div class="mlbl">NAME</div><input class="minput" id="eName" type="text"></div>
+    <div class="mrow"><div class="mlbl">DATE</div><input class="minput" id="eDate" type="date"></div>
+    <div class="mrow"><div class="mlbl">CHECK-IN TIME</div><input class="minput" id="eIn" type="time" step="1"></div>
+    <div class="mrow"><div class="mlbl">CHECK-OUT TIME (optional)</div><input class="minput" id="eOut" type="time" step="1"></div>
+    <div class="mact">
+      <button class="btn btn-outline" onclick="closeModal()">CANCEL</button>
+      <button class="btn btn-green" onclick="saveEdit()">SAVE CHANGES</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights';
+const THRESHOLD = 0.45;
+const SAMPLES_NEEDED = 5;
+const COOLDOWN_MS = 5 * 60 * 1000;
+
+let registeredFaces = [];  // {name, descriptors[]}
+let attendance = [];       // {id,name,date,checkIn,checkOut,status}
+let cooldowns = {};        // name -> {lastAction,status,recordId}
+let modelsLoaded = false;
+let capturing = false, capCount = 0, capDescs = [], capName = '';
+let editId = null, searchQ = '';
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('overlay');
+
+// Clock
+function tick() {
+  const n = new Date();
+  document.getElementById('clock').textContent =
+    [n.getHours(),n.getMinutes(),n.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');
+}
+setInterval(tick, 1000); tick();
+
+// Toast
+let toastT;
+function toast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (type?' '+type:'');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.className='', 3500);
+}
+
+// Persist
+function save() {
+  try {
+    localStorage.setItem('fs_f', JSON.stringify(registeredFaces.map(f=>({
+      name:f.name, descs:f.descriptors.map(d=>Array.from(d))
+    }))));
+    localStorage.setItem('fs_a', JSON.stringify(attendance));
+  } catch(e){}
+}
+function load() {
+  try {
+    const fr = localStorage.getItem('fs_f');
+    if(fr) registeredFaces = JSON.parse(fr).map(f=>({
+      name:f.name, descriptors:f.descs.map(d=>new Float32Array(d))
+    }));
+    const ar = localStorage.getItem('fs_a');
+    if(ar) attendance = JSON.parse(ar);
+  } catch(e){}
+}
+
+// Init camera + models
+async function init() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'user',width:{ideal:640},height:{ideal:480}}
+    });
+    video.srcObject = stream;
+    await new Promise(r => video.onloadedmetadata = r);
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    await loadModels();
+  } catch(e) {
+    document.getElementById('loadText').textContent = 'CAMERA DENIED — ALLOW ACCESS';
+    document.getElementById('loadFill').style.background = 'var(--red)';
+    toast('Camera access denied', 'error');
+  }
+}
+
+async function loadModels() {
+  const fill = document.getElementById('loadFill');
+  const txt = document.getElementById('loadText');
+  txt.textContent='LOADING DETECTION MODEL...'; fill.style.width='10%';
+  await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+  txt.textContent='LOADING LANDMARK MODEL...'; fill.style.width='55%';
+  await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+  txt.textContent='LOADING RECOGNITION MODEL...'; fill.style.width='85%';
+  await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+  fill.style.width='100%'; txt.textContent='READY';
+  modelsLoaded = true;
+  setTimeout(()=>{
+    document.getElementById('loadingOverlay').style.display='none';
+    document.getElementById('sysStatus').textContent='LIVE';
+    document.getElementById('regBtn').disabled=false;
+    const dot=document.getElementById('camDot');
+    dot.className='cam-dot active';
+    document.getElementById('camLbl').textContent='ACTIVE';
+    detectLoop();
+  },500);
+}
+
+// Detection loop
+async function detectLoop() {
+  const ctx = canvas.getContext('2d');
+  async function frame() {
+    if(!video.srcObject||video.paused){setTimeout(frame,300);return;}
+    try {
+      const dets = await faceapi
+        .detectAllFaces(video, new faceapi.SsdMobilenetv1Options({minConfidence:0.5}))
+        .withFaceLandmarks()
+        .withFaceDescriptors();
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      if(!dets.length){
+        setIdle();
+        document.getElementById('confBadge').textContent='NO FACE DETECTED';
+      } else {
+        document.getElementById('confBadge').textContent=`${dets.length} FACE${dets.length>1?'S':''} DETECTED`;
+        for(const det of dets) {
+          const b = det.detection.box;
+          const fx = canvas.width - b.x - b.width;
+          const fy = b.y, fw = b.width, fh = b.height;
+          let mName=null, mDist=1;
+          if(registeredFaces.length>0){
+            const matcher = new faceapi.FaceMatcher(
+              registeredFaces.map(f=>new faceapi.LabeledFaceDescriptors(f.name,f.descriptors)),
+              THRESHOLD
+            );
+            const r = matcher.findBestMatch(det.descriptor);
+            if(r.label!=='unknown'){mName=r.label;mDist=r.distance;}
+          }
+          // Draw box
+          ctx.strokeStyle = mName?'#00e5a0':'rgba(255,255,255,0.45)';
+          ctx.lineWidth=2;
+          ctx.strokeRect(fx,fy,fw,fh);
+          // Corners
+          const cs=14;
+          ctx.strokeStyle=mName?'#00e5a0':'#ffffff';
+          ctx.lineWidth=3;
+          [[fx,fy,1,1],[fx+fw,fy,-1,1],[fx,fy+fh,1,-1],[fx+fw,fy+fh,-1,-1]].forEach(([cx,cy,sx,sy])=>{
+            ctx.beginPath(); ctx.moveTo(cx,cy+sy*cs); ctx.lineTo(cx,cy); ctx.lineTo(cx+sx*cs,cy); ctx.stroke();
+          });
+          // Label
+          if(mName){
+            ctx.fillStyle='rgba(0,229,160,0.88)';
+            ctx.fillRect(fx,fy-22,fw,22);
+            ctx.fillStyle='#050a0e';
+            ctx.font='bold 11px "Share Tech Mono",monospace';
+            ctx.textAlign='center';
+            ctx.fillText(mName.toUpperCase()+' ('+Math.round((1-mDist)*100)+'%)',fx+fw/2,fy-7);
+            ctx.textAlign='left';
+            setRecognized(mName,mDist);
+            handleAttendance(mName);
+          }
+          // Capture descriptors (for new enrollment or re-enrollment)
+          if(capturing){
+            capDescs.push(det.descriptor);
+            capCount++;
+            const pct=(capCount/SAMPLES_NEEDED)*100;
+            document.getElementById('capFill').style.width=pct+'%';
+            document.getElementById('capLbl').textContent=`CAPTURING ${capCount}/${SAMPLES_NEEDED} SAMPLES...`;
+            if(capCount>=SAMPLES_NEEDED){finalizeEnroll();return;}
+          }
+        }
+        if(dets.length&&!registeredFaces.length) setIdle('FACE DETECTED — ENROLL TO REGISTER');
+      }
+    }catch(e){}
+    setTimeout(frame,500);
+  }
+  frame();
+}
+
+function setIdle(msg){
+  document.getElementById('recogIdle').textContent=msg||'⬡ AWAITING FACE DETECTION...';
+  document.getElementById('recogIdle').style.display='block';
+  document.getElementById('recogResult').style.display='none';
+}
+function setRecognized(name,dist){
+  document.getElementById('recogIdle').style.display='none';
+  document.getElementById('recogResult').style.display='block';
+  document.getElementById('recogName').textContent=name.toUpperCase();
+  const cd=cooldowns[name];
+  const s=cd?.status==='in'?'CHECKED IN · WILL CHECK OUT':'WILL CHECK IN';
+  document.getElementById('recogDetail').textContent=`MATCH ${Math.round((1-dist)*100)}%  ·  ${s}`;
+}
+
+// Attendance logic
+function handleAttendance(name){
+  const now=Date.now();
+  const cd=cooldowns[name];
+  if(cd&&(now-cd.lastAction)<COOLDOWN_MS)return;
+  const t=new Date(), ts=fmtTime(t), ds=fmtDate(t);
+  if(!cd||cd.status==='out'){
+    const rec={id:uid(),name,date:ds,checkIn:ts,checkOut:null,status:'in'};
+    attendance.unshift(rec);
+    cooldowns[name]={lastAction:now,status:'in',recordId:rec.id};
+    save(); render(); stats();
+    toast(`✓ ${name.toUpperCase()} CHECKED IN AT ${ts}`);
+  } else if(cd.status==='in'){
+    const rec=attendance.find(r=>r.id===cd.recordId);
+    if(rec){rec.checkOut=ts;rec.status='out';}
+    cooldowns[name]={lastAction:now,status:'out',recordId:null};
+    save(); render(); stats();
+    toast(`◎ ${name.toUpperCase()} CHECKED OUT AT ${ts}`,'amber');
+  }
+}
+
+// Enrollment
+document.getElementById('regBtn').addEventListener('click',()=>{
+  const name=document.getElementById('nameInput').value.trim();
+  if(!name){toast('Enter a name to enroll','error');return;}
+  if(!modelsLoaded){toast('Models loading, please wait','error');return;}
+  capName=name; capDescs=[]; capCount=0; capturing=true;
+  document.getElementById('capProg').classList.add('show');
+  document.getElementById('capFill').style.width='0%';
+  document.getElementById('capLbl').textContent=`CAPTURING 0/${SAMPLES_NEEDED}...`;
+  document.getElementById('regBtn').disabled=true;
+  toast('LOOK AT CAMERA — CAPTURING FACE SAMPLES...','amber');
+});
+
+function finalizeEnroll(){
+  capturing=false;
+  const ex=registeredFaces.find(f=>f.name===capName);
+  if(ex) ex.descriptors=[...ex.descriptors,...capDescs];
+  else registeredFaces.push({name:capName,descriptors:capDescs});
+  save(); renderFaces(); stats();
+  document.getElementById('capProg').classList.remove('show');
+  document.getElementById('nameInput').value='';
+  document.getElementById('regBtn').disabled=false;
+  toast(`✓ ${capName.toUpperCase()} ENROLLED SUCCESSFULLY`);
+  capName='';
+  setTimeout(detectLoop,300);
+}
+
+// Render enrolled faces
+function renderFaces(){
+  const el=document.getElementById('facesList');
+  if(!registeredFaces.length){el.innerHTML='<div class="empty-state">NO IDENTITIES ENROLLED</div>';return;}
+  el.innerHTML=registeredFaces.map(f=>`
+    <div class="face-item">
+      <div class="face-avatar">${f.name.charAt(0).toUpperCase()}</div>
+      <div class="face-info">
+        <div class="face-name">${esc(f.name)}</div>
+        <div class="face-samp">${f.descriptors.length} SAMPLES · ACTIVE</div>
+      </div>
+      <button class="face-del" onclick="removeEnrolled('${esc(f.name)}')" title="Remove">✕</button>
+    </div>`).join('');
+}
+function removeEnrolled(name){
+  if(!confirm(`Remove ${name} from enrolled identities?`))return;
+  registeredFaces=registeredFaces.filter(f=>f.name!==name);
+  delete cooldowns[name];
+  save(); renderFaces(); stats();
+  toast(`${name.toUpperCase()} REMOVED`,'error');
+}
+
+// Attendance table
+function render(){
+  const tbody=document.getElementById('tbody');
+  let data=attendance;
+  if(searchQ) data=data.filter(r=>r.name.toLowerCase().includes(searchQ)||r.date.includes(searchQ));
+  if(!data.length){
+    tbody.innerHTML=`<tr><td colspan="8"><div class="empty-tbl"><span class="empty-tbl-icon">⬡</span><p>NO ATTENDANCE RECORDS FOUND</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML=data.map((r,i)=>`
+    <tr>
+      <td class="td-mono">${String(i+1).padStart(3,'0')}</td>
+      <td class="td-name">${esc(r.name)}</td>
+      <td class="td-mono">${r.date}</td>
+      <td class="td-mono">${r.checkIn||'—'}</td>
+      <td class="td-mono">${r.checkOut||'—'}</td>
+      <td class="td-mono">${r.checkIn&&r.checkOut?calcDur(r.checkIn,r.checkOut):'—'}</td>
+      <td>${r.status==='in'?'<span class="badge badge-in"><span class="b-dot"></span>IN</span>':'<span class="badge badge-out"><span class="b-dot"></span>OUT</span>'}</td>
+      <td><div class="act-btns">
+        <button class="icon-btn edit" onclick="openEdit('${r.id}')">EDIT</button>
+        <button class="icon-btn del" onclick="delRecord('${r.id}')">DEL</button>
+      </div></td>
+    </tr>`).join('');
+}
+function delRecord(id){
+  const r=attendance.find(x=>x.id===id);
+  if(!r)return;
+  if(!confirm(`Delete record for ${r.name}?`))return;
+  attendance=attendance.filter(x=>x.id!==id);
+  if(cooldowns[r.name]?.recordId===id) delete cooldowns[r.name];
+  save(); render(); stats();
+  toast('RECORD DELETED','error');
+}
+document.getElementById('searchBox').addEventListener('input',e=>{searchQ=e.target.value.toLowerCase();render();});
+
+// Edit modal
+function openEdit(id){
+  const r=attendance.find(x=>x.id===id);
+  if(!r)return;
+  editId=id;
+  document.getElementById('eName').value=r.name;
+  document.getElementById('eDate').value=r.date;
+  document.getElementById('eIn').value=r.checkIn||'';
+  document.getElementById('eOut').value=r.checkOut||'';
+  document.getElementById('editModal').classList.add('open');
+}
+function closeModal(){document.getElementById('editModal').classList.remove('open');editId=null;}
+function saveEdit(){
+  const r=attendance.find(x=>x.id===editId);
+  if(!r)return;
+  const n=document.getElementById('eName').value.trim();
+  if(!n){toast('Name cannot be empty','error');return;}
+  r.name=n;
+  r.date=document.getElementById('eDate').value||r.date;
+  r.checkIn=document.getElementById('eIn').value||r.checkIn;
+  const co=document.getElementById('eOut').value;
+  r.checkOut=co||null;
+  r.status=co?'out':'in';
+  save(); render(); stats();
+  closeModal();
+  toast('RECORD UPDATED');
+}
+document.getElementById('editModal').addEventListener('click',e=>{if(e.target===document.getElementById('editModal'))closeModal();});
+
+// Stats
+function stats(){
+  const today=fmtDate(new Date());
+  const td=attendance.filter(r=>r.date===today);
+  document.getElementById('sEnrolled').textContent=registeredFaces.length;
+  document.getElementById('sIn').textContent=td.filter(r=>r.status==='in').length;
+  document.getElementById('sTotal').textContent=td.length;
+}
+
+// CSV
+document.getElementById('exportBtn').addEventListener('click',()=>{
+  if(!attendance.length){toast('No records to export','error');return;}
+  const h='#,Name,Date,Check-In,Check-Out,Duration,Status\n';
+  const rows=attendance.map((r,i)=>[
+    i+1,`"${r.name}"`,r.date,r.checkIn||'',r.checkOut||'',
+    r.checkIn&&r.checkOut?calcDur(r.checkIn,r.checkOut):'',
+    r.status==='in'?'CHECKED IN':'CHECKED OUT'
+  ].join(',')).join('\n');
+  const blob=new Blob([h+rows],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=`attendance_${fmtDate(new Date())}.csv`; a.click();
+  URL.revokeObjectURL(url);
+  toast('CSV EXPORTED');
+});
+
+// Clear today
+document.getElementById('clearBtn').addEventListener('click',()=>{
+  const today=fmtDate(new Date());
+  const cnt=attendance.filter(r=>r.date===today).length;
+  if(!cnt){toast('No records for today','amber');return;}
+  if(!confirm(`Clear ${cnt} records for today?`))return;
+  attendance=attendance.filter(r=>r.date!==today);
+  cooldowns={};
+  save(); render(); stats();
+  toast(`CLEARED ${cnt} RECORDS`,'amber');
+});
+
+// Utils
+function fmtTime(d){return[d.getHours(),d.getMinutes(),d.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');}
+function fmtDate(d){return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function calcDur(ci,co){
+  try{
+    const[h1,m1,s1]=ci.split(':').map(Number);
+    const[h2,m2,s2]=co.split(':').map(Number);
+    let s=(h2*3600+m2*60+s2)-(h1*3600+m1*60+s1);
+    if(s<0)s+=86400;
+    return`${String(Math.floor(s/3600)).padStart(2,'0')}h ${String(Math.floor((s%3600)/60)).padStart(2,'0')}m`;
+  }catch{return'—';}
+}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+// Boot
+load(); renderFaces(); render(); stats(); init();
+</script>
+</body>
+</html>
